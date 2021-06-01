@@ -1,0 +1,6 @@
+#+TITLE: Readme
+#+AUTHOR: Kostas Zorbadelos (kzorba AT nixly DOT net)
+
+* Description
+
+This is the README file for the project.
