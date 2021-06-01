@@ -1,0 +1,54 @@
+version: "2.4"
+services:
+
+  bgp-peer1:
+    image: kzorba/bgp-speaker:v1.0.0
+    hostname: bgp-peer1
+    container_name: bgp-peer1
+    command: ["/sbin/my_init"]
+    networks:
+      peerings:
+        ipv4_address: 192.168.100.10
+        ipv6_address: fd00:100::10
+    volumes:
+      - ./example_data:/data
+    environment:
+      - "ROUTER_ID=192.168.100.10"
+      - "LOCAL_AS=65100"
+      - "PEER_AS=65200"
+      - "PEER_IPv4=192.168.100.20"
+      - "PEER_IPv6=fd00:100::20"
+ 
+  bgp-peer2:
+    image: kzorba/bgp-speaker:v1.0.0
+    hostname: bgp-peer2
+    container_name: bgp-peer2
+    command: ["/sbin/my_init"]
+    networks:
+      peerings:
+        ipv4_address: 192.168.100.20
+        ipv6_address: fd00:100::20
+    volumes:
+      - ./example_data:/data
+    environment:
+      - "ROUTER_ID=192.168.100.20"
+      - "LOCAL_AS=65200"
+      - "PEER_AS=65100"
+      - "PEER_IPv4=192.168.100.10"
+      - "PEER_IPv6=fd00:100::10"
+ 
+networks:
+  peerings:
+    name: peerings
+    driver: bridge
+    enable_ipv6: true
+    driver_opts:
+      com.docker.network.bridge.name: peerings
+    ipam:
+      driver: default
+      config:
+        - subnet: 192.168.100.0/24
+          gateway: 192.168.100.1
+        - subnet: fd00:100::/64
+          gateway: fd00:100::1
+

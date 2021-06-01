@@ -1,6 +1,10 @@
 #+TITLE: Readme
 #+AUTHOR: Kostas Zorbadelos (kzorba AT nixly DOT net)
 
-* Description
+* bgp-speaker-container: A docker container providing BGP speaker functionality
+** Description
+Documentation is pending
 
-This is the README file for the project.
+** Usage
+
+** Examples
