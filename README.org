@@ -3,8 +3,258 @@
 
 * bgp-speaker-container: A docker container providing BGP speaker functionality
 ** Description
-Documentation is pending
+In many cases, network engineers need to perform lab simulations of network topologies for planning and debugging or also for the purposes of learning and experimenting. There are various emulation tools[fn:1] both free and commercial. Most router vendors provide a containerized version of their equipment / Network Operating System. We could therefore create topologies using docker containers[fn:2] or use containers together with physical equipment even.
 
-** Usage
+In such environments, when we are interested in control plane functionality, a nice to have component is a container that can be integrated in the topology, speaks BGP and is able to inject/withdraw routes to simulate various scenaria, using a scripting approach. Many open source BGP implementations exist, but a very nice easily configurable solution is a container packaging GoBGP.
 
-** Examples
+This repository contains such a docker container package.
+
+** Components
+The building blocks of the solution are
+
+- [[https://github.com/phusion/baseimage-docker][phusion/baseimage-docker]]
+A special docker image that provides a minimal Ubuntu Linux system, able to accommodate multiple processes in the container. It takes care of the many details needed to adapt a Linux system in a docker environment (eg init and services) plus provides a few basic services like syslog and ssh connectivity to the container if needed.
+With it, we can have a container emulating a linux system / device in the network. Configuration for the services can be passed to the container via environment variables. This image is meant to be used as base for various custom containers.
+
+- [[https://github.com/osrg/gobgp][GoBGP]]
+A BGP implementation in Go, provides a BGP daemon as a single static executable, plus a CLI client to interact with it. GoBGP is put as a service in the baseimage-docker and is configured with the help of environment variables. GoBGP provides a very easy way to announce / withdraw routes in a topology with the use of the gobgp cli client using plain text files.
+
+** Build / Usage
+After cloning the repo we build the docker image like so:
+
+#+BEGIN_EXAMPLE
+kzorba:~/WorkingArea/bgp-speaker-container ☂ master
+❯ docker build -t kzorba/bgp-speaker:v1.0.0 .
+#+END_EXAMPLE
+
+This builds an image named =kzorba/bgp-speaker:v1.0.0= feel free to name/tag the version as you wish.
+
+The simplest case is to run the container directly via =docker run=
+
+#+BEGIN_EXAMPLE
+kzorba:~/WorkingArea/bgp-speaker-container ☂ master
+❯ docker run -d --rm -h bgp-speaker --name bgp-speaker kzorba/bgp-speaker:v1.0.0
+#+END_EXAMPLE
+
+This will start a docker container named =bgp-speaker= that will run a gobgp deamon with a default configuration. You can see the configuration by getting a shell in the container:
+
+#+BEGIN_EXAMPLE
+kzorba:~
+❯ docker exec -ti bgp-speaker /bin/bash
+root@bgp-speaker:/# cat /etc/gobgpd/gobgpd.conf
+[global.config]
+  as = 65100
+  router-id = "127.0.0.1"
+
+[[neighbors]]
+  [neighbors.config]
+    neighbor-address = "127.0.0.1"
+    peer-as = 65000
+
+[[neighbors]]
+  [neighbors.config]
+    neighbor-address = "::1"
+    peer-as = 65000
+
+root@bgp-speaker:/# exit
+#+END_EXAMPLE
+
+This configuration is of course of no practical use, but we can customize it using environment variables, the following self explanatory variables are used:
+
+- =ROUTER_ID=
+- =LOCAL_AS=
+- =PEER_AS=
+- =PEER_IPv4=
+- =PEER_IPv6=
+
+#+BEGIN_EXAMPLE
+kzorba:~/WorkingArea/bgp-speaker-container ☂ master
+❯ docker run -d --rm -h bgp-speaker --name bgp-speaker --env ROUTER_ID=172.17.0.10 --env LOCAL_AS=65100 --env PEER_AS=65200 --env PEER_IPv4=172.17.0.20 --env PEER_IPv6=fd00:100::20 kzorba/bgp-speaker:v1.0.0
+a05b4bf05705cfa16d02102054dc9cde0684fe62244410630c1a2bbab913ff5d
+#+END_EXAMPLE
+
+#+BEGIN_EXAMPLE
+kzorba:~
+❯ docker exec -ti bgp-speaker /bin/bash
+root@bgp-speaker:/# cat /etc/gobgpd/gobgpd.conf
+[global.config]
+  as = 65100
+  router-id = "172.17.0.10"
+
+[[neighbors]]
+  [neighbors.config]
+    neighbor-address = "172.17.0.20"
+    peer-as = 65200
+
+[[neighbors]]
+  [neighbors.config]
+    neighbor-address = "fd00:100::20"
+    peer-as = 65200
+
+root@bgp-speaker:/#
+#+END_EXAMPLE
+
+We can also view the logs from gobgpd using docker logs:
+
+#+BEGIN_EXAMPLE
+kzorba:~
+❯ docker logs -f bgp-speaker
+,* Running /etc/my_init.d/00_regen_ssh_host_keys.sh...
+,* Running /etc/my_init.d/10_syslog-ng.init...
+Jun  2 16:09:31 bgp-speaker syslog-ng[14]: syslog-ng starting up; version='3.13.2'
+,* Running /etc/my_init.d/99_gen_gobgp_conf.sh...
+,* Booting runit daemon...
+,* Runit started as PID 25
+Jun  2 16:09:33 bgp-speaker cron[29]: (CRON) INFO (pidfile fd = 3)
+{"level":"info","msg":"gobgpd started","time":"2021-06-02T16:09:33Z"}
+Jun  2 16:09:33 bgp-speaker cron[29]: (CRON) INFO (Running @reboot jobs)
+{"Topic":"Config","level":"info","msg":"Finished reading the config file","time":"2021-06-02T16:09:33Z"}
+{"level":"info","msg":"Peer 172.17.0.20 is added","time":"2021-06-02T16:09:33Z"}
+{"Topic":"Peer","level":"info","msg":"Add a peer configuration for:172.17.0.20","time":"2021-06-02T16:09:33Z"}
+{"level":"info","msg":"Peer fd00:100::20 is added","time":"2021-06-02T16:09:33Z"}
+{"Topic":"Peer","level":"info","msg":"Add a peer configuration for:fd00:100::20","time":"2021-06-02T16:09:33Z"}
+{"Duration":0,"Key":"172.17.0.20","Topic":"Peer","level":"debug","msg":"IdleHoldTimer expired","time":"2021-06-02T16:09:33Z"}
+{"Duration":0,"Key":"fd00:100::20","Topic":"Peer","level":"debug","msg":"IdleHoldTimer expired","time":"2021-06-02T16:09:33Z"}
+{"Key":"172.17.0.20","Topic":"Peer","level":"debug","msg":"state changed","new":"BGP_FSM_ACTIVE","old":"BGP_FSM_IDLE","reason":{"Type":7,"BGPNotification":null,"Data":null},"time":"2021-06-02T16:09:33Z"}
+{"Key":"fd00:100::20","Topic":"Peer","level":"debug","msg":"state changed","new":"BGP_FSM_ACTIVE","old":"BGP_FSM_IDLE","reason":{"Type":7,"BGPNotification":null,"Data":null},"time":"2021-06-02T16:09:33Z"}
+{"Key":"fd00:100::20","Topic":"Peer","level":"debug","msg":"try to connect","time":"2021-06-02T16:09:40Z"}
+{"Key":"fd00:100::20","Topic":"Peer","level":"debug","msg":"failed to connect: dial tcp [::]:0-\u003e[fd00:100::20]:179: connect: cannot assign requested address","time":"2021-06-02T16:09:40Z"}
+{"Key":"172.17.0.20","Topic":"Peer","level":"debug","msg":"try to connect","time":"2021-06-02T16:09:41Z"}
+{"Key":"172.17.0.20","Topic":"Peer","level":"debug","msg":"failed to connect: dial tcp 0.0.0.0:0-\u003e172.17.0.20:179: connect: no route to host","time":"2021-06-02T16:09:44Z"}
+^C
+#+END_EXAMPLE
+
+*** docker-compose example
+A more useful example is included in the repository, using =docker-compose=. We can set all the environment variables needed, arrange connectivity via a docker network (v4 and v6) and then feed prefixes into the bgp peers.
+We can then inspect that the prefixes are exchanged and we can also see the ribs of the individual gobgp containers.
+Prefixes to be injected (announced) by each peer are contained in plain text files.
+
+=labctl.sh= controls the example run. The =docker-compose= command uses =docker-compose.yml= and starts 2 bgp peers with proper parameters, connecting them via a  dedicated docker network.
+
+#+BEGIN_EXAMPLE
+docker-compose up -d --remove-orphans
+#+END_EXAMPLE
+
+We can then inject prefixes into a peer like so:
+
+#+BEGIN_EXAMPLE
+docker exec -ti bgp-peer1 /bin/bash -c "goBGPFeed.sh < /data/peer1_v4_prefixes.txt"
+#+END_EXAMPLE
+
+Here is a run of the example:
+
+#+BEGIN_EXAMPLE
+kzorba:~/WorkingArea/bgp-speaker-container ☂ master
+❯ ./labctl.sh start
+Starting eBGP speakers...
+Creating network "peerings" with driver "bridge"
+Creating bgp-peer2 ... done
+Creating bgp-peer1 ... done
+Done
+Initializing BGP peering
+==> bgp-peer1: Feeding IPv4 prefixes
+Feeding NLRI data to goBGPd...
+Done
+==> bgp-peer1: Feeding IPv6 prefixes
+Feeding NLRI data to goBGPd...
+Done
+==> bgp-peer2: Feeding IPv4 prefixes
+Feeding NLRI data to goBGPd...
+Done
+==> bgp-peer2: Feeding IPv6 prefixes
+Feeding NLRI data to goBGPd...
+Done
+---------------------------------
+You can login to each container using the commands:
+> docker exec -ti bgp-peer1 /bin/bash
+> docker exec -ti bgp-peer2 /bin/bash
+In each container shell use: gobgp help
+---------------------------------
+#+END_EXAMPLE
+
+#+BEGIN_EXAMPLE
+kzorba:~/WorkingArea/bgp-speaker-container ☂ master
+❯ ./labctl.sh status
+CONTAINER ID   IMAGE                       COMMAND           CREATED         STATUS         PORTS     NAMES
+f7f165d1a0bf   kzorba/bgp-speaker:v1.0.0   "/sbin/my_init"   5 minutes ago   Up 5 minutes             bgp-peer2
+12c9cc8466a3   kzorba/bgp-speaker:v1.0.0   "/sbin/my_init"   5 minutes ago   Up 5 minutes             bgp-peer1
+==> bgp-peer1: show neighbors
+Peer              AS  Up/Down State       |#Received  Accepted
+192.168.100.20 65200 00:05:07 Establ      |     1036      1036
+fd00:100::20   65200 00:05:06 Establ      |     1020      1020
+==> bgp-peer2: show neighbors
+Peer              AS  Up/Down State       |#Received  Accepted
+192.168.100.10 65100 00:05:07 Establ      |     1038      1038
+fd00:100::10   65100 00:05:06 Establ      |     1013      1013
+#+END_EXAMPLE
+
+
+#+BEGIN_EXAMPLE
+kzorba:~
+❯ docker exec -ti bgp-peer1 /bin/bash
+root@bgp-peer1:/# gobgp neighbor
+192.168.100.20  fd00:100::20
+root@bgp-peer1:/# gobgp neighbor 192.168.100.20
+BGP neighbor is 192.168.100.20, remote AS 65200
+  BGP version 4, remote router ID 192.168.100.20
+  BGP state = ESTABLISHED, up for 00:06:46
+  BGP OutQ = 0, Flops = 0
+  Hold time is 90, keepalive interval is 30 seconds
+  Configured hold time is 90, keepalive interval is 30 seconds
+
+  Neighbor capabilities:
+    multiprotocol:
+        ipv4-unicast:	advertised and received
+    route-refresh:	advertised and received
+    extended-nexthop:	advertised and received
+        Local:  nlri: ipv4-unicast, nexthop: ipv6
+        Remote: nlri: ipv4-unicast, nexthop: ipv6
+    4-octet-as:	advertised and received
+  Message statistics:
+                         Sent       Rcvd
+    Opens:                  1          1
+    Notifications:          0          0
+    Updates:             1038       1036
+    Keepalives:            14         14
+    Route Refresh:          0          0
+    Discarded:              0          0
+    Total:               1053       1051
+  Route statistics:
+    Advertised:          1038
+    Received:            1036
+    Accepted:            1036
+
+root@bgp-peer1:/# gobgp global rib -a ipv4
+...
+root@bgp-peer1:/# gobgp global rib -a ipv6
+...
+
+root@bgp-peer1:/# gobgp global rib 1.0.0.0/24
+   Network              Next Hop             AS_PATH              Age        Attrs
+*> 1.0.0.0/24           0.0.0.0              13335                00:08:21   [{Origin: i} {Med: 10}]
+,*  1.0.0.0/24           192.168.100.20       65200 13335          00:08:11   [{Origin: i}]
+#+END_EXAMPLE
+
+Terminate the example clearing up the containers:
+
+#+BEGIN_EXAMPLE
+kzorba:~/WorkingArea/bgp-speaker-container ☂ master
+❯ ./labctl.sh stop
+Stopping eBGP speakers...
+Stopping bgp-peer2 ... done
+Stopping bgp-peer1 ... done
+Removing bgp-peer2 ... done
+Removing bgp-peer1 ... done
+Removing network peerings
+Done
+#+END_EXAMPLE
+
+Hopefully this can be of use in lab or other environments where a bgp speaker that can be scripted is needed. Feel free to adjust according to your needs.
+
+* Footnotes
+
+[fn:2] [[https://containerlab.srlinux.dev/][CONTAINERlab]]
+[[https://github.com/plajjan/vrnetlab][vrnetlab]]
+
+[fn:1] [[https://www.eve-ng.net/][EVE - The Emulated Virtual Environment]]
+[[https://www.gns3.com/][GNS3]]
