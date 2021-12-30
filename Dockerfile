@@ -2,25 +2,30 @@ FROM phusion/baseimage:bionic-1.0.0
 MAINTAINER kzorba@nixly.net
 
 # Install some tools
-RUN install_clean bash-completion iproute2 iputils-ping telnet
+RUN install_clean bash-completion iproute2 iputils-ping telnet tcpdump ethtool
 
 # Install gobgp from binary distribution
-RUN curl -L https://github.com/osrg/gobgp/releases/download/v2.27.0/gobgp_2.27.0_linux_amd64.tar.gz -o /root/gobgp_2.27.0_linux_amd64.tar.gz
-RUN tar xvfz /root/gobgp_2.27.0_linux_amd64.tar.gz gobgpd && mv gobgpd /usr/local/sbin && chown 755 /usr/local/sbin/gobgpd
-RUN tar xvfz /root/gobgp_2.27.0_linux_amd64.tar.gz gobgp && mv gobgp /usr/local/bin && chown 755 /usr/local/bin/gobgp
-RUN rm /root/gobgp_2.27.0_linux_amd64.tar.gz
+RUN curl -L https://github.com/osrg/gobgp/releases/download/v2.34.0/gobgp_2.34.0_linux_amd64.tar.gz -o /root/gobgp_2.34.0_linux_amd64.tar.gz
+RUN tar xvfz /root/gobgp_2.34.0_linux_amd64.tar.gz gobgpd && mv gobgpd /usr/local/sbin && chown 755 /usr/local/sbin/gobgpd
+RUN tar xvfz /root/gobgp_2.34.0_linux_amd64.tar.gz gobgp && mv gobgp /usr/local/bin && chown 755 /usr/local/bin/gobgp
+RUN rm /root/gobgp_2.34.0_linux_amd64.tar.gz
 RUN mkdir /etc/gobgpd
 
 # gobgp client bash completion
-RUN curl https://raw.githubusercontent.com/osrg/gobgp/v2.27.0/tools/completion/gobgp-completion.bash -o /root/gobgp-completion.bash
-RUN curl https://raw.githubusercontent.com/osrg/gobgp/v2.27.0/tools/completion/gobgp-static-completion.bash -o /root/gobgp-static-completion.bash
-RUN curl https://raw.githubusercontent.com/osrg/gobgp/v2.27.0/tools/completion/gobgp-dynamic-completion.bash -o /root/gobgp-dynamic-completion.bash
+RUN curl https://raw.githubusercontent.com/osrg/gobgp/v2.34.0/tools/completion/gobgp-completion.bash -o /root/gobgp-completion.bash
+RUN curl https://raw.githubusercontent.com/osrg/gobgp/v2.34.0/tools/completion/gobgp-static-completion.bash -o /root/gobgp-static-completion.bash
+RUN curl https://raw.githubusercontent.com/osrg/gobgp/v2.34.0/tools/completion/gobgp-dynamic-completion.bash -o /root/gobgp-dynamic-completion.bash
 RUN echo "source /etc/bash_completion" >> /root/.bashrc
 RUN echo "source /root/gobgp-completion.bash" >> /root/.bashrc
 
 # script to load prefixes in gobgp rib
 COPY scripts/goBGPFeed.sh /usr/local/bin
 RUN chmod 755 /usr/local/bin/goBGPFeed.sh
+
+# script to disable tx-checksumming offload upon container startup
+# if TX_CHECKSUMMING environment variable is set to "off" or "0"
+COPY scripts/90_tx-checksumming.sh /etc/my_init.d/
+RUN chmod u+x /etc/my_init.d/90_tx-checksumming.sh
 
 # script to generate gobgpd config upon container startup
 COPY scripts/gen_goBGPConf.py /usr/local/bin

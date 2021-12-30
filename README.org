@@ -124,6 +124,15 @@ Jun  2 16:09:33 bgp-speaker cron[29]: (CRON) INFO (Running @reboot jobs)
 ^C
 #+END_EXAMPLE
 
+One extra variable for customization is
+
+- =TX_CHECKSUMMING=
+
+Setting this to =off= or =0= causes TX checksum offloading to be disabled. By default, TX checksumming offload is enabled which means that the container does not compute TCP checksums for example in the packets it sends, expecting the underlying network card to do it. In some cases, if you have a lab of fully virtual devices connected on the same physical server (using veth) no-one computes checksums causing TCP connections between devices to fail.
+
+We noticed this between our gobgp container and Juniper vMX ([[https://github.com/Juniper/OpenJNPR-Container-vMX][OpenJNPR]]) when they were connected over a linux bridge. BGP connections between the containers were failing due to erroneous TCP checksums. Setting the environment variable to the aforementioned values  disables the TX offload on the eth0 of the gobgp container causing the checksums to be properly computed. This requires also =NET_ADMIN= capability to be included in the container priviledges (see docker-compose.yml included in the repository).
+
+
 *** docker-compose example
 A more useful example is included in the repository, using =docker-compose=. We can set all the environment variables needed, arrange connectivity via a docker network (v4 and v6) and then feed prefixes into the bgp peers.
 We can then inspect that the prefixes are exchanged and we can also see the ribs of the individual gobgp containers.
